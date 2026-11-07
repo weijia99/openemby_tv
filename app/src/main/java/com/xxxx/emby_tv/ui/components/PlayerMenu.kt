@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Surface
 import androidx.tv.material3.MaterialTheme as TvMaterialTheme
 import androidx.tv.material3.*
@@ -91,6 +92,8 @@ fun PlayerMenu(
     onSubtitleBottomPaddingChange: (Float) -> Unit = {},
     subtitleTimeOffsetMs: Long = 0L,
     onSubtitleTimeOffsetChange: (Long) -> Unit = {},
+    /** 在线搜索字幕：从字幕站找到并下载到本机，作为外挂字幕加载。 */
+    onSearchOnlineSubtitle: (() -> Unit)? = null,
     currentMediaSourceId: String? = null,
     allMediaSources: List<MediaSourceInfoDto> = emptyList(),
     onSourceSelect: (MediaSourceInfoDto) -> Unit = {},
@@ -245,7 +248,8 @@ fun PlayerMenu(
                                 subtitleBottomPadding,
                                 onSubtitleBottomPaddingChange,
                                 subtitleTimeOffsetMs,
-                                onSubtitleTimeOffsetChange
+                                onSubtitleTimeOffsetChange,
+                                onSearchOnline = onSearchOnlineSubtitle
                             )
 
                             "Audio" -> AudioTab(audioTracks, selectedAudioIndex, onAudioSelect)
@@ -698,9 +702,42 @@ fun SubtitlesTab(
     bottomPadding: Float,
     onBottomPaddingChange: (Float) -> Unit,
     timeOffsetMs: Long,
-    onTimeOffsetChange: (Long) -> Unit
+    onTimeOffsetChange: (Long) -> Unit,
+    /** 在线搜索字幕的入口；为 null 时该行不显示。 */
+    onSearchOnline: (() -> Unit)? = null
 ) {
     LazyColumn(contentPadding = PaddingValues(horizontal = 150.dp)) {
+        // 在线搜索放在最上面：Emby 服务器没有合适字幕时，这是最先要点的
+        if (onSearchOnline != null) {
+            item {
+                Surface(
+                    onClick = onSearchOnline,
+                    shape = ClickableSurfaceDefaults.shape(shape = RoundedCornerShape(8.dp)),
+                    colors = ClickableSurfaceDefaults.colors(
+                        focusedContainerColor = TvMaterialTheme.colorScheme.secondary,
+                        focusedContentColor = TvMaterialTheme.colorScheme.onSecondary,
+                        containerColor = TvMaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                        contentColor = TvMaterialTheme.colorScheme.onSurface
+                    ),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1.03f),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(stringResource(R.string.search_online_subtitle))
+                        Icon(androidx.compose.material.icons.Icons.Default.Search, null)
+                    }
+                }
+            }
+            item {
+                Spacer(modifier = Modifier.height(16.dp))
+            }
+        }
         item {
             SubtitleOffsetRow(bottomPadding, onBottomPaddingChange)
         }

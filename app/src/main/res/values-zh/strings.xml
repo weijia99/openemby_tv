@@ -50,6 +50,7 @@
     <string name="subtitle_position_hint">文本字幕均会移动到设定位置；图形字幕（PGS）保持原位</string>
     <string name="audio">音频</string>
     <string name="disable_subtitles">关闭字幕</string>
+    <string name="search_online_subtitle">在线搜索字幕</string>
     <string name="no_episodes_found">未找到分集</string>
     <string name="list_loop">列表循环</string>
     <string name="single_loop">单集循环</string>

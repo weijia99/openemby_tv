@@ -25,6 +25,7 @@ class SubtitleOffsetController {
 
     fun onCues(cueGroup: CueGroup) {
         val timeMs = cueGroup.presentationTimeUs / 1000
+        android.util.Log.d("SubOff", "onCues t=$timeMs n=${cueGroup.cues.size} bitmap=${cueGroup.cues.count { it.bitmap != null }} text=${cueGroup.cues.count { !it.text.isNullOrEmpty() }}")
         // 回退跳转（seek 回退/换源）时清空历史
         if (groups.isNotEmpty() && timeMs + SEEK_CLEAR_THRESHOLD_MS < groups.last().timeMs) {
             groups.clear()

@@ -10,6 +10,7 @@ import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.*
@@ -182,6 +183,8 @@ fun PlayerScreen(
     playerViewModel: PlayerViewModel,
     mediaId: String,
     playbackPositionTicks: Long = 0L,
+    initialAudioIndex: Int? = null,
+    initialSubtitleIndex: Int? = null,
     onPlaybackStateChanged: (isPlaying: Boolean) -> Unit = {},
     onNavigateToPlayer: (BaseItemDto) -> Unit = {},
     onRePlayer: (BaseItemDto, Long) -> Unit = { _, _ -> },
@@ -211,6 +214,8 @@ fun PlayerScreen(
 
     var subtitleTracks by remember { mutableStateOf<List<MediaStreamDto>>(emptyList()) }
     var selectedSubtitleIndex by remember { mutableStateOf(-99) }
+    // 在线字幕搜索对话框是否打开
+    var showSubtitleSearch by remember { mutableStateOf(false) }
     var audioTracks by remember { mutableStateOf<List<MediaStreamDto>>(emptyList()) }
     var selectedAudioIndex by remember { mutableStateOf(-1) }
     var videoUrl by remember { mutableStateOf<String?>(null) }
@@ -994,10 +999,11 @@ fun PlayerScreen(
             }
 
             if (selectedAudioIndex == -1) {
-                selectedAudioIndex = source?.defaultAudioStreamIndex ?: -1
+                // A caller-supplied track (for example an MCP request) wins over the server default.
+                selectedAudioIndex = initialAudioIndex ?: source?.defaultAudioStreamIndex ?: -1
             }
             if (selectedSubtitleIndex == -99) {
-                selectedSubtitleIndex = source?.defaultSubtitleStreamIndex ?: -1
+                selectedSubtitleIndex = initialSubtitleIndex ?: source?.defaultSubtitleStreamIndex ?: -1
             }
 
             // 构建 URL (参考 Flutter 逻辑)
@@ -1099,7 +1105,19 @@ fun PlayerScreen(
     }
 
     // 更新选中字幕 - 使用 PlayerTrackManager
+    //
+    // ExoPlayer 只有在 prepare() 之后才会填充 currentTracks。此前调用选择逻辑时
+    // 可用轨为 0，匹配必然失败；而 currentTracks 是一次性回调，失败后不会再触发，
+    // 于是内嵌轨（如 PGS）永远停在"菜单能勾、画面不显示"。这里在轨道就绪前重试。
     LaunchedEffect(selectedSubtitleIndex, subtitleTracks, currentTracks, configRoutedSubtitleIndices) {
+        if (subtitleTracks.isNotEmpty() && selectedSubtitleIndex != -99 &&
+            currentTracks?.groups?.none { it.type == C.TRACK_TYPE_TEXT } != false
+        ) {
+            repeat(20) {
+                if (currentTracks?.groups?.any { it.type == C.TRACK_TYPE_TEXT } == true) return@LaunchedEffect
+                delay(250)
+            }
+        }
         PlayerTrackManager.selectSubtitle(
             player,
             subtitleTracks,
@@ -1111,6 +1129,14 @@ fun PlayerScreen(
 
     // 更新选中音频 - 使用 PlayerTrackManager
     LaunchedEffect(selectedAudioIndex, audioTracks, currentTracks) {
+        if (audioTracks.isNotEmpty() && selectedAudioIndex > -1 &&
+            currentTracks?.groups?.none { it.type == C.TRACK_TYPE_AUDIO } != false
+        ) {
+            repeat(20) {
+                if (currentTracks?.groups?.any { it.type == C.TRACK_TYPE_AUDIO } == true) return@LaunchedEffect
+                delay(250)
+            }
+        }
         PlayerTrackManager.selectAudio(player, audioTracks, selectedAudioIndex, currentTracks)
     }
 
@@ -1701,6 +1727,41 @@ fun PlayerScreen(
                 modifier = Modifier.fillMaxSize()
             )
 
+            // 1.6 在线字幕（自绘）：从字幕站下载的 SRT 由应用自己解析并按播放进度画在画面上。
+            // 这条路径不经过 Media3 的轨道机制，加字幕不需要重建 MediaItem —— 播放不中断，
+            // 字幕即时出现，换一条也即时生效。
+            run {
+                val onlineLine = com.xxxx.emby_tv.ui.player.SrtOverlay.current
+                val onlineLabel = com.xxxx.emby_tv.ui.player.SrtOverlay.loadedLabel
+                // 每 200ms 读一次播放位置，取当前该显示的一行
+                LaunchedEffect(player, onlineLabel) {
+                    if (onlineLabel == null) return@LaunchedEffect
+                    while (true) {
+                        com.xxxx.emby_tv.ui.player.SrtOverlay.lineFor(player.currentPosition)
+                        kotlinx.coroutines.delay(200)
+                    }
+                }
+                if (onlineLine != null) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(bottom = 56.dp),
+                        contentAlignment = Alignment.BottomCenter
+                    ) {
+                        Text(
+                            text = onlineLine,
+                            color = Color(0xFFF8F8E8),
+                            fontSize = 32.sp,
+                            lineHeight = 42.sp,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                            modifier = Modifier
+                                .background(Color(0xAA000000), RoundedCornerShape(8.dp))
+                                .padding(horizontal = 22.dp, vertical = 10.dp)
+                        )
+                    }
+                }
+            }
+
 
             // 2. Full Info Overlay Layer (only when isShowInfo)
             if (isShowInfo && !isPlaying) {
@@ -1939,6 +2000,10 @@ fun PlayerScreen(
                     },
                     subtitleTimeOffsetMs = subtitleTimeOffsetMs,
                     onSubtitleTimeOffsetChange = { subtitleTimeOffsetMs = it },
+                    onSearchOnlineSubtitle = {
+                        showMenu = false
+                        showSubtitleSearch = true
+                    },
                     currentMediaSourceId = currentMediaSourceId,
                     allMediaSources = allMediaSources,
                     onSourceSelect = { source ->
@@ -1980,6 +2045,16 @@ fun PlayerScreen(
                     position = position,
                     onNavigateToPlayer = onNavigateToPlayer,
                     onRePlayer = onRePlayer
+                )
+            }
+
+            // 6. 在线字幕搜索：下载到本机后加进字幕列表，由上面的 effect 换进播放项
+            if (showSubtitleSearch) {
+                com.xxxx.emby_tv.ui.player.SubtitleSearchDialog(
+                    initialQuery = mediaInfo.name.orEmpty(),
+                    // 下载完成即解析并由界面自绘，播放器完全不动：字幕立刻出现，不重新缓冲
+                    onDownloaded = { _, languageLabel -> },
+                    onDismiss = { showSubtitleSearch = false }
                 )
             }
 

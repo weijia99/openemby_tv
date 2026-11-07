@@ -41,17 +41,21 @@ android {
         create("release") {
             keyAlias = keystoreProperties["keyAlias"] as String
             keyPassword = keystoreProperties["keyPassword"] as String
-            storeFile = keystoreProperties["storeFile"]?.let { file(it) }
+            // key.jks 与 key.properties 一起放在项目根目录，所以按 rootProject 解析
+            storeFile = keystoreProperties["storeFile"]?.let { rootProject.file(it) }
             storePassword = keystoreProperties["storePassword"] as String
         }
     }
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now,
-            // so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
             signingConfig = signingConfigs.getByName("release")
+            // R8 压缩代码与资源：debug 版 32MB → release 约 10MB，内存与 CPU 占用也随之下降
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
         }
     }
 }

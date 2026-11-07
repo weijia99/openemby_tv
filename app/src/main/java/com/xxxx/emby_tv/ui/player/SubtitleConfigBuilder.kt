@@ -35,9 +35,26 @@ object SubtitleConfigBuilder {
         mediaSourceId: String,
         apiKey: String,
         selectedSubtitleIndex: Int,
-        serverDeliveredIndices: Set<Int> = emptySet()
+        serverDeliveredIndices: Set<Int> = emptySet(),
+        /**
+         * 本地下载的字幕（在线搜索而来），与 Emby 的轨道并列。
+         * 每条是「文件 + 显示名 + 语言」，索引用负数，避免和服务器的 index 冲突。
+         */
+        localSubtitles: List<LocalSubtitle> = emptyList()
     ): List<MediaItem.SubtitleConfiguration> {
         val subtitleConfigs = mutableListOf<MediaItem.SubtitleConfiguration>()
+
+        // 本地下载的字幕先加入：文件就在本机，media3 直接读取，无需服务器参与
+        localSubtitles.forEachIndexed { position, local ->
+            val config = MediaItem.SubtitleConfiguration.Builder(Uri.fromFile(local.file))
+                .setId(LOCAL_ID_PREFIX + position)
+                .setMimeType(MimeTypes.APPLICATION_SUBRIP)
+                .setLanguage(local.language)
+                .setLabel("${local.label} [本地]")
+                .setSelectionFlags(if (local.selected) C.SELECTION_FLAG_DEFAULT else 0)
+                .build()
+            subtitleConfigs.add(config)
+        }
 
 //        Log.d(TAG, "=== Building Subtitle Configurations ===")
 //        Log.d(TAG, "Total subtitleTracks: ${subtitleTracks.size}")
@@ -102,4 +119,17 @@ object SubtitleConfigBuilder {
             else -> MimeTypes.APPLICATION_SUBRIP
         }
     }
+    /** 本地字幕的 id 前缀，和服务器的数字 index 区分开。 */
+    const val LOCAL_ID_PREFIX = "local-"
 }
+
+/**
+ * 本地字幕：从网上搜索下载到本机的 SRT 文件。
+ * [label] 显示在字幕菜单里（通常含片名和语言），[language] 是媒体语言标记。
+ */
+data class LocalSubtitle(
+    val file: java.io.File,
+    val label: String,
+    val language: String,
+    val selected: Boolean = false
+)

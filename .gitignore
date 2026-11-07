@@ -18,4 +18,6 @@ local.properties
 .kotlin
 key.properties
 .opencode
-.myconfig
+.myconfig*.jks
+*.keystore
+key.jks

@@ -95,8 +95,10 @@ object PlayerTrackManager {
             }
         }
 
-        // 策略2：顺序匹配（用于直接播放的内嵌字幕）
-        if (!isMatched && isLoadedViaConfig && targetOrdinalIndex >= 0) {
+        // 策略2：顺序匹配（内嵌字幕与配置轨都适用）。
+        // 直接用 ExoPlayer 实际暴露的文本轨顺序，这是唯一能覆盖内嵌 PGS 的路径：
+        // 这类轨在 currentTracks 首次到达前不参与逐序匹配，之后不会再有重试机会。
+        if (!isMatched && targetOrdinalIndex >= 0) {
             var trackCounter = 0
             outerOrdinal@ for (group in trackGroups) {
                 for (i in 0 until group.length) {

@@ -81,6 +81,20 @@ class EmbyRepository private constructor(private val context: Context) {
     // === 媒体库 ===
 
     /**
+     * 获取媒体库视图列表（真正的库，而不是库内条目）
+     */
+    suspend fun getViews(): List<BaseItemDto> {
+        requireLoggedIn()
+        return EmbyApi.getViews(
+            context,
+            session.serverUrl!!,
+            session.apiKey!!,
+            session.deviceId,
+            session.userId!!
+        )
+    }
+
+    /**
      * 获取继续观看列表
      */
     suspend fun getResumeItems(seriesId: String = ""): List<BaseItemDto> {

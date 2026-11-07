@@ -5,6 +5,7 @@ import com.xxxx.emby_tv.ui.LibraryScreen
 import com.xxxx.emby_tv.ui.LoginScreen
 import com.xxxx.emby_tv.ui.PlayerScreen
 
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.os.Bundle
 import androidx.activity.ComponentActivity
@@ -44,6 +45,10 @@ import com.xxxx.emby_tv.ui.viewmodel.SearchViewModel
 
 
 class MainActivity : ComponentActivity() {
+
+    /** Emitted at most once per intent; consumed by EmbyTvApp to deep-link into the player. */
+    private val openPlayerRequest = mutableStateOf<OpenPlayerRequest?>(null)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -51,14 +56,62 @@ class MainActivity : ComponentActivity() {
         requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
 
         enableEdgeToEdge()
+
+        // Boot hook for the embedded MCP server; it also starts on app open (see below).
+        com.xxxx.emby_tv.mcp.McpServer.start(this)
+        openPlayerRequest.value = readOpenPlayerRequest(intent)
+
         setContent {
-            EmbyTvApp()
+            EmbyTvApp(openPlayerRequest)
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        readOpenPlayerRequest(intent)?.let { openPlayerRequest.value = it }
+    }
+
+    /**
+     * An MCP caller (or a shell) asks for a specific item to be opened. The request
+     * is delivered as intent extras so no separate IPC surface is exposed.
+     */
+    private fun readOpenPlayerRequest(intent: Intent?): OpenPlayerRequest? {
+        if (intent == null) return null
+        val mediaId = intent.getStringExtra(EXTRA_MEDIA_ID) ?: return null
+        return OpenPlayerRequest(
+            mediaId = mediaId,
+            positionTicks = intent.getLongExtra(EXTRA_POSITION_TICKS, 0L),
+            audioIndex = intent.getIntExtra(EXTRA_AUDIO_INDEX, Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE },
+            subtitleIndex = intent.getIntExtra(EXTRA_SUBTITLE_INDEX, Int.MIN_VALUE).takeIf { it != Int.MIN_VALUE },
+            requestId = intent.getStringExtra(EXTRA_REQUEST_ID) ?: mediaId
+        )
+    }
+
+    companion object {
+        const val ACTION_OPEN_PLAYER = "com.xxxx.emby_tv.action.OPEN_PLAYER"
+        const val EXTRA_MEDIA_ID = "com.xxxx.emby_tv.extra.MEDIA_ID"
+        const val EXTRA_POSITION_TICKS = "com.xxxx.emby_tv.extra.POSITION_TICKS"
+        const val EXTRA_AUDIO_INDEX = "com.xxxx.emby_tv.extra.AUDIO_INDEX"
+        const val EXTRA_SUBTITLE_INDEX = "com.xxxx.emby_tv.extra.SUBTITLE_INDEX"
+        const val EXTRA_REQUEST_ID = "com.xxxx.emby_tv.extra.REQUEST_ID"
     }
 }
 
+/** Route/argument marker meaning "no explicit track requested". */
+const val UNSPECIFIED_TRACK: Int = Int.MIN_VALUE
+
+/** A request to open the player on [mediaId], consumed once by EmbyTvApp. */
+data class OpenPlayerRequest(
+    val mediaId: String,
+    val positionTicks: Long,
+    val audioIndex: Int?,
+    val subtitleIndex: Int?,
+    val requestId: String
+)
+
 @Composable
-fun EmbyTvApp() {
+fun EmbyTvApp(openPlayerRequest: MutableState<OpenPlayerRequest?>? = null) {
     val navController = rememberNavController()
 
     // 使用新的 MainViewModel
@@ -99,6 +152,20 @@ fun EmbyTvApp() {
                     }
                 }
             }
+        }
+    }
+
+    // MCP / intent deep link: jump straight to the player once signed in.
+    val pendingOpen = openPlayerRequest?.value
+    LaunchedEffect(pendingOpen, isLoggedIn, isLoaded) {
+        if (pendingOpen == null || !isLoaded || !isLoggedIn) return@LaunchedEffect
+        openPlayerRequest!!.value = null
+        navController.navigate(
+            "player/${pendingOpen.mediaId}?position=${pendingOpen.positionTicks}" +
+                "&audio=${pendingOpen.audioIndex ?: UNSPECIFIED_TRACK}" +
+                "&subtitle=${pendingOpen.subtitleIndex ?: UNSPECIFIED_TRACK}"
+        ) {
+            launchSingleTop = true
         }
     }
 
@@ -301,23 +368,37 @@ fun EmbyTvApp() {
 
                     // 播放器页面
                     composable(
-                        "player/{mediaId}?position={position}",
+                        "player/{mediaId}?position={position}&audio={audio}&subtitle={subtitle}",
                         arguments = listOf(
                             navArgument("mediaId") { type = NavType.StringType },
                             navArgument("position") {
                                 type = NavType.LongType
                                 defaultValue = 0L
+                            },
+                            navArgument("audio") {
+                                type = NavType.IntType
+                                defaultValue = UNSPECIFIED_TRACK
+                            },
+                            navArgument("subtitle") {
+                                type = NavType.IntType
+                                defaultValue = UNSPECIFIED_TRACK
                             }
                         )
                     ) { backStackEntry ->
                         val mediaId = backStackEntry.arguments?.getString("mediaId") ?: ""
                         val playbackPositionTicks =
                             backStackEntry.arguments?.getLong("position") ?: 0L
+                        val requestedAudio =
+                            backStackEntry.arguments?.getInt("audio") ?: UNSPECIFIED_TRACK
+                        val requestedSubtitle =
+                            backStackEntry.arguments?.getInt("subtitle") ?: UNSPECIFIED_TRACK
                         val playerViewModel: PlayerViewModel = viewModel()
 
                         PlayerScreen(
                             mediaId = mediaId,
                             playbackPositionTicks = playbackPositionTicks,
+                            initialAudioIndex = requestedAudio.takeIf { it != UNSPECIFIED_TRACK },
+                            initialSubtitleIndex = requestedSubtitle.takeIf { it != UNSPECIFIED_TRACK },
                             playerViewModel = playerViewModel,
                             onNavigateToPlayer = { nextItem ->
                                 val nextId = nextItem.id ?: ""

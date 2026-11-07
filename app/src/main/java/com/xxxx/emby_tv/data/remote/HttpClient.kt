@@ -76,8 +76,11 @@ object HttpClient {
                 maxRequestsPerHost = 20
             })
             .connectionPool(ConnectionPool(10, 2, TimeUnit.MINUTES))
-            .connectTimeout(6, TimeUnit.SECONDS)
-            .readTimeout(6, TimeUnit.SECONDS)
+            .connectTimeout(10, TimeUnit.SECONDS)
+            // 6s was too tight for the first search after a server switch: DNS, TLS and a
+            // cold Emby index together exceed it, and the read failed before the list arrived.
+            // Streaming still applies its own per-read behaviour, so this only bounds API calls.
+            .readTimeout(25, TimeUnit.SECONDS)
             .retryOnConnectionFailure(true)
 
         if (config.enabled && config.host.isNotEmpty()) {

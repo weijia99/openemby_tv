@@ -38,6 +38,7 @@
     <string name="audio_label">Audio</string>
     <string name="playback">Playback</string>
     <string name="disable_subtitles">Disable subtitles</string>
+    <string name="search_online_subtitle">Search subtitles online</string>
     <string name="no_episodes_found">No episodes found</string>
     <string name="list_loop">List loop</string>
     <string name="single_loop">Single loop</string>
